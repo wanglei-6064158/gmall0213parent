@@ -5,7 +5,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 
 import com.alibaba.fastjson.{JSON, JSONObject}
-import com.atguigu.gmall0213.realtime.util.{MyKafkaUtil, OffSetManagerUtil, RedisUtil}
+import com.atguigu.gmall0213.realtime.DauInfo
+import com.atguigu.gmall0213.realtime.util.{MyEsUtil, MyKafkaUtil, OffSetManagerUtil, RedisUtil}
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.SparkConf
@@ -45,7 +46,7 @@ object DauApp {
     println("22222")
 
 
-    //TODO 集群模式
+    //TODO redis集群模式
     val jsonObjectDStream: DStream[JSONObject] = inputGetOffSetDStream.map(record => {
       val jsonString: String = record.value()
       val jsonObject: JSONObject = JSON.parseObject(jsonString)
@@ -70,14 +71,49 @@ object DauApp {
       jsonObjList.toIterator
     })
 
-    jsonObjFilteredDStream.foreachRDD(rdd => {
-      rdd.foreach(jsonObj => {
-        println("hahahahahha")
-        println(jsonObj)
-      })
-      OffSetManagerUtil.saveOffSet(topic,groupId,offSetRanges)
-    })
+    val formattar = new SimpleDateFormat("yyyy-MM-dd HH:mm")
+    jsonObjFilteredDStream.foreachRDD{rdd =>
+//       rdd.foreach(jsonObj=>println(jsonObj))
+      rdd.foreachPartition{
+        jsonObjItr => {
+          val jsonObjList1: List[JSONObject] = jsonObjItr.toList
+          for(j <- jsonObjList1)
+            {
+              println(j)
+            }
+          val dauWithIdList: List[(DauInfo, String)] = jsonObjList1.map(jsonObj => {
+            val commonJsonObj: JSONObject = jsonObj.getJSONObject("common")
+            val ts: lang.Long = jsonObj.getLong("ts")
+            val dateTimeStr: String = formattar.format(ts)
+            val dateTimeArr: Array[String] = dateTimeStr.split(" ")
+            val dt: String = dateTimeArr(0)
+            val time: String = dateTimeArr(1)
+            val timeArr: Array[String] = time.split(":")
+            val hr: String = timeArr(0)
+            val mi: String = timeArr(1)
+            val dauInfo = DauInfo(
+              commonJsonObj.getString("mid"),
+              commonJsonObj.getString("uid"),
+              commonJsonObj.getString("ar"),
+              commonJsonObj.getString("ch"),
+              commonJsonObj.getString("vc"),
+              dt, hr, mi, ts
+            )
+            (dauInfo, dauInfo.mid)
+          })
+          var dt: String = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
+          if(null != dauWithIdList && dauWithIdList.size > 0)
+            {
+              println("有数据")
+              dt = dauWithIdList(0)._1.dt
+            }
 
+          println(dt)
+          MyEsUtil.bulkSave(dauWithIdList,"gmall_dau_info_" + dt)
+        }
+      }
+      OffSetManagerUtil.saveOffSet(topic,groupId,offSetRanges)
+    }
 
     //TODO 单机模式
 //    val filterStream: DStream[String] = recordInputDStream.transform {

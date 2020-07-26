@@ -1,4 +1,4 @@
-package com.atguigu.gmall0213.gmall0213logger;
+package com.atguigu.gmall0213;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
